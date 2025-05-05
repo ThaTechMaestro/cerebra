@@ -1,0 +1,4 @@
+ISSUES
+1. ErrorMessage: "Bus error: 10"
+This occured when trying to use gpt2, (my local system could not allocate the required memory needed for gpt2)
+the workaround was to switch to a much smaller model
