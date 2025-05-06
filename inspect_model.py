@@ -1,38 +1,44 @@
-import torch
-from transformers import AutoTokenizer, GPT2LMHeadModel
+# inspect_with_transformerlens.py
 
-# Set device to GPU if available
+import torch
+from transformer_lens import HookedTransformer
+import matplotlib.pyplot as plt
+import seaborn as sns
+
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Using device: {device}")
 
-# Load pre-trained model and tokenizer
-model_name = "sshleifer/tiny-gpt2"
-tokenizer = AutoTokenizer.from_pretrained(model_name)
-model = GPT2LMHeadModel.from_pretrained(model_name).to(device)
+# Load small TransformerLens-compatible model
+model = HookedTransformer.from_pretrained("tiny-stories-1M").to(device)
 
-# Input text to generate from
-input_text = "Once upon a time"
-print(f"Input prompt: {input_text}")
+prompt = "Once upon a time"
+tokens = model.to_tokens(prompt).to(device)
 
-# Tokenize input text
-input_ids = tokenizer.encode(input_text, return_tensors="pt").to(device)
+# Run with internal caching
+logits, cache = model.run_with_cache(tokens)
 
-# Generate text
-attention_mask = torch.ones_like(input_ids)  # Create explicit attention mask
-output = model.generate(
-    input_ids,
-    attention_mask=attention_mask,
-    max_length=50,
-    num_return_sequences=1,
-    no_repeat_ngram_size=2,
-    do_sample=True,  # Enable sampling for temperature, top_k and top_p to take effect
-    temperature=0.7,
-    top_k=50,
-    top_p=0.95,
-    pad_token_id=tokenizer.eos_token_id
-)
+decoded_output = model.to_string(torch.argmax(logits, dim=-1)[0])
+print(f"\nTransformerLens Output: {decoded_output}")
 
-# Decode and print the generated text
-generated_text = tokenizer.decode(output[0], skip_special_tokens=True)
-print("\nGenerated text:")
-print(generated_text)
+# === Attention Heatmap ===
+attn = cache["attn", 0][0, 0].detach().cpu()
+tokens_str = model.to_str_tokens(prompt)
+
+plt.figure(figsize=(8, 6))
+sns.heatmap(attn, xticklabels=tokens_str, yticklabels=tokens_str, cmap="viridis", annot=True, fmt=".2f")
+plt.title("Attention Head 0, Layer 0 (TransformerLens)")
+plt.xlabel("Key tokens")
+plt.ylabel("Query tokens")
+plt.tight_layout()
+plt.show()
+
+# === MLP Activation Heatmap ===
+mlp_post = cache["post", 0][0].detach().cpu()
+
+plt.figure(figsize=(10, 3))
+sns.heatmap(mlp_post.T, cmap="magma", cbar=True)
+plt.title("MLP Activations (Layer 0, TransformerLens)")
+plt.xlabel("Token Position")
+plt.ylabel("Neuron Index")
+plt.tight_layout()
+plt.show()
